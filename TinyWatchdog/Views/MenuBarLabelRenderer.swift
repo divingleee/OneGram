@@ -40,13 +40,13 @@ enum MenuBarLabelRenderer {
 
     /// 上排数值字体：所有指标的数值（CPU/GPU/内存的百分比、网络的速率）。
     /// monospacedDigit = 等宽数字，数值跳动时宽度不会抖。
-    private static let valueFont = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .semibold)
+    private static let valueFont = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .semibold)
 
     /// 下排名称字体：CPU / GPU / MEM / 上行 / 下行 这些文字。
     private static let labelFont = NSFont.systemFont(ofSize: 8, weight: .medium)
 
     /// ★ 网络模块上排（上行速度）字体。
-    private static let networkUpFont = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .semibold)
+    private static let networkUpFont = NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .semibold)
 
     /// ★ 网络模块下排（下行速度）字体。
     private static let networkDownFont = NSFont.systemFont(ofSize: 8, weight: .medium)
@@ -59,7 +59,7 @@ enum MenuBarLabelRenderer {
 
     /// ★ 上块高度 : 下块高度的比例（普通指标列），这里就是 3:2。
     /// 每个指标的矩形内部沿垂直方向按 3:2 切分：上 3 份放数字、下 2 份放名称。
-    private static let upperToLowerRatio: CGFloat = 3.0 / 2
+    private static let upperToLowerRatio: CGFloat = 3.0 / 2.0
 
     /// 列之间那条细竖线的宽度（点）。1 在 Retina 上就是 2 个像素，比较精致。
     private static let separatorLineWidth: CGFloat = 1
@@ -79,7 +79,7 @@ enum MenuBarLabelRenderer {
     /// ★ 是否画出「上块 / 下块」的背景色，用来区分这两块区域。
     /// ⚠️ 打开后图片不再是模板图（`isTemplate = false`），颜色会原样保留，
     ///    因此不再跟随菜单栏的浅色 / 深色自动反色。只想看正常效果时设成 false。
-    private static let showsBlockBackgrounds = true
+    private static let showsBlockBackgrounds = false
 
     /// 上块（数字那一行）的背景色。用**不透明**的浅色：
     /// 半透明色叠在深色菜单栏上会变暗、黑字就看不清了。
@@ -111,7 +111,7 @@ enum MenuBarLabelRenderer {
     private static let metricColumnWidth: CGFloat = 31
 
     /// ★ 网络模块的固定宽度（点）。`0` = 不固定、按内容自适应。
-    private static let networkColumnWidth: CGFloat = 0
+    private static let networkColumnWidth: CGFloat = 55
 
     /// 菜单栏背景是不是深色。
     /// 图片不是模板图时（画了彩色背景 / 用了彩色图标），文字和图标就得自己挑颜色。
