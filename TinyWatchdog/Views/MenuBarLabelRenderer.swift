@@ -4,10 +4,10 @@
 //
 //  【View 层 / 绘制】把「指标数据」画成一张菜单栏用的图片。
 //
-//  每个指标一列、共两行（上数值 / 下名称），列与列之间一条细竖线：
+//  每个指标一列、共两行（上数值 / 下说明），列与列之间一条细竖线：
 //
-//      19%      11%      75%      ↑ 1.2 K/s
-//      CPU      GPU      MEM      ↓ 3.4 K/s
+//      19%      11%      75%      1.5M     345K
+//      CPU      GPU      MEM      UPLOAD   DOWN
 //
 //  为什么画成一张图：MenuBarExtra 的 label 只支持 Text / Image，装不下多行布局。
 //
@@ -30,12 +30,16 @@ enum MenuBarLabelRenderer {
     private struct Style {
         /// 数值字体：等宽数字，数值跳动时宽度不抖。
         let valueFont = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .semibold)
-        let labelFont = NSFont.systemFont(ofSize: 8, weight: .medium)
-        let networkUpFont = NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .semibold)
-        let networkDownFont = NSFont.systemFont(ofSize: 8, weight: .medium)
+        let labelFont = NSFont.systemFont(ofSize: 6, weight: .medium)
+        /// 网络两列的字体，默认与指标列一致（同字号才能协调）。
+        let networkValueFont = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .semibold)
+        let networkLabelFont = NSFont.systemFont(ofSize: 6, weight: .medium)
 
-        /// 上块 : 下块的高度比（3:2）。
-        let upperToLowerRatio: CGFloat = 3.0 / 2.0
+        /// 上块 : 下块的高度比。
+        let metricUpperToLowerRatio: CGFloat = 3.0 / 1.5
+
+        /// 网络列文字的水平对齐方式（left / center / right）。普通指标列固定居中。
+        let networkAlignment = TextAlignment.center
 
         let separatorWidth: CGFloat = 1        // 1pt 在 Retina 上 = 2px
         let separatorTopPadding: CGFloat = 2   // 竖线距图片顶部的留白，调大 = 竖线变短
@@ -53,11 +57,11 @@ enum MenuBarLabelRenderer {
         /// 只有放不下文字时才会自动撑高（见 minimumHeight）。
         let imageHeight: CGFloat = 22
 
-        let metricColumnWidth: CGFloat = 31    // 刚好放下 "100%"
-        let networkColumnWidth: CGFloat = 55
+        let metricColumnWidth: CGFloat = 35    // 刚好放下 "100%"
+        let networkColumnWidth: CGFloat = 35    // 0 = 按内容自适应
 
         /// 调试用：给上 / 下两块涂色。打开后文字固定黑色、不再跟随深浅色。
-        let showsBlockBackgrounds = true
+        let showsBlockBackgrounds = false
         let upperBlockColor = NSColor(srgbRed: 0.74, green: 0.85, blue: 1.00, alpha: 1)
         let lowerBlockColor = NSColor(srgbRed: 1.00, green: 0.76, blue: 0.76, alpha: 1)
 
@@ -85,13 +89,29 @@ enum MenuBarLabelRenderer {
         font.capHeight + extra
     }
 
+    /// 按对齐方式算出文字相对列左边缘的 x 偏移。
+    private static func dx(for textWidth: CGFloat, columnWidth: CGFloat, alignment: TextAlignment) -> CGFloat {
+        switch alignment {
+        case .left:   return 0
+        case .center: return (columnWidth - textWidth) / 2
+        case .right:  return columnWidth - textWidth
+        }
+    }
+
     // MARK: - 数据模型
+
+    /// 一列内文字的水平对齐方式。
+    enum TextAlignment {
+        case left, center, right
+    }
 
     /// 一列的样式。宽度为 0 = 按内容自适应。
     private struct ColumnStyle {
         let topFont: NSFont
         let bottomFont: NSFont
         let columnWidth: CGFloat
+        let upperToLowerRatio: CGFloat
+        let textAlignment: TextAlignment
     }
 
     private struct Column {
@@ -134,8 +154,8 @@ enum MenuBarLabelRenderer {
     private static var cachedImage: NSImage?
 
     /// 生成菜单栏图片，一定会返回一张图。
-    static func image(metrics: SystemMetrics, enabled: Set<MetricType>, showIcon: Bool = true, swapNetwork: Bool = false) -> NSImage {
-        let columns = makeColumns(metrics: metrics, enabled: enabled, swapNetwork: swapNetwork)
+    static func image(metrics: SystemMetrics, enabled: Set<MetricType>, showIcon: Bool = true) -> NSImage {
+        let columns = makeColumns(metrics: metrics, enabled: enabled)
         // 一个指标都没勾选时，即使用户关掉了图标也强制画：否则菜单栏上是点不到的空白项。
         let drawIcon = showIcon || columns.isEmpty
 
@@ -212,19 +232,22 @@ enum MenuBarLabelRenderer {
             let lowerNeed = rowNeed(font: m.style.bottomFont, extra: 2)
             let upperNeed = rowNeed(font: m.style.topFont, extra: 3)
             let lowerHeight = min(
-                max(availableHeight / (1 + style.upperToLowerRatio), lowerNeed),
+                max(availableHeight / (1 + m.style.upperToLowerRatio), lowerNeed),
                 availableHeight - upperNeed
             )
             let splitY = style.verticalPadding + lowerHeight
             let upperHeight = availableHeight - lowerHeight
 
             // draw(at:) 的 y 是文字包围盒的左下角（unflipped 上下文）。
+            // x 按列的对齐方式排（普通指标列固定居中，网络列可配）。
+            let topDX = dx(for: m.topSize.width, columnWidth: m.columnWidth, alignment: m.style.textAlignment)
+            let bottomDX = dx(for: m.bottomSize.width, columnWidth: m.columnWidth, alignment: m.style.textAlignment)
             let topOrigin = NSPoint(
-                x: x + (m.columnWidth - m.topSize.width) / 2,
+                x: x + topDX,
                 y: splitY + (upperHeight - m.topSize.height) / 2
             )
             let bottomOrigin = NSPoint(
-                x: x + (m.columnWidth - m.bottomSize.width) / 2,
+                x: x + bottomDX,
                 y: splitY - lowerHeight + (lowerHeight - m.bottomSize.height) / 2
             )
 
@@ -281,9 +304,19 @@ enum MenuBarLabelRenderer {
         NSAttributedString(string: string, attributes: [.font: font, .foregroundColor: color])
     }
 
-    private static func makeColumns(metrics: SystemMetrics, enabled: Set<MetricType>, swapNetwork: Bool) -> [Column] {
-        let metricStyle = ColumnStyle(topFont: style.valueFont, bottomFont: style.labelFont, columnWidth: style.metricColumnWidth)
-        let networkStyle = ColumnStyle(topFont: style.networkUpFont, bottomFont: style.networkDownFont, columnWidth: style.networkColumnWidth)
+    private static func makeColumns(metrics: SystemMetrics, enabled: Set<MetricType>) -> [Column] {
+        let metricStyle = ColumnStyle(
+            topFont: style.valueFont, bottomFont: style.labelFont,
+            columnWidth: style.metricColumnWidth,
+            upperToLowerRatio: style.metricUpperToLowerRatio,
+            textAlignment: .center
+        )
+        let networkStyle = ColumnStyle(
+            topFont: style.networkValueFont, bottomFont: style.networkLabelFont,
+            columnWidth: style.networkColumnWidth,
+            upperToLowerRatio: style.metricUpperToLowerRatio,
+            textAlignment: style.networkAlignment
+        )
 
         var columns: [Column] = []
         let percents: [(metric: MetricType, label: String, value: Double?)] = [
@@ -299,13 +332,18 @@ enum MenuBarLabelRenderer {
             ))
         }
 
-        // 网络：上行在上、下行在下；swapNetwork 时上下互换。
-        if enabled.contains(.network) {
-            let up = "↑ " + MetricFormatter.rate(metrics.upload)
-            let down = "↓ " + MetricFormatter.rate(metrics.download)
+        // 网络拆成两列、独立开关，各列与指标列同构（数值 + 说明）。
+        if enabled.contains(.upload) {
             columns.append(Column(
-                top: swapNetwork ? down : up,
-                bottom: swapNetwork ? up : down,
+                top: MetricFormatter.rate(metrics.upload),
+                bottom: "UPLOAD",
+                style: networkStyle
+            ))
+        }
+        if enabled.contains(.download) {
+            columns.append(Column(
+                top: MetricFormatter.rate(metrics.download),
+                bottom: "DOWN",
                 style: networkStyle
             ))
         }

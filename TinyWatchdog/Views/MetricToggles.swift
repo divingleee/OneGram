@@ -2,7 +2,7 @@
 //  MetricToggles.swift
 //  TinyWatchdog
 //
-//  【View 层】「显示图标 + 4 个指标」这一组开关。
+//  【View 层】「显示图标 + 5 个指标」这一组开关。
 //  下拉菜单（MenuBarContentView）和偏好设置（SettingsView）都用它，
 //  保证两处状态完全一致。
 //

@@ -28,7 +28,8 @@ final class MetricsSampler {
     func reset(_ metrics: Set<MetricType>) {
         if metrics.contains(.cpu) { cpuCollector.reset() }
         if metrics.contains(.gpu) { gpuCollector.reset() }
-        if metrics.contains(.network) { networkCollector.reset() }
+        // 上行 / 下行共用同一个采集器：任一开关打开都重置一次基线。
+        if metrics.contains(.upload) || metrics.contains(.download) { networkCollector.reset() }
         // 内存占用率是一次性读取，没有基线，不需要重置。
     }
 
@@ -47,11 +48,12 @@ final class MetricsSampler {
             metrics.memory = memoryCollector.sample()
         }
 
-        // 网络上下行是同一个开关，被勾选时一次读取同时拿到两个方向。
-        if enabled.contains(.network) {
+        // 上行 / 下行是独立的开关，但共用一次网卡读取：
+        // 任一被勾选就采一次，只填被勾选的那一（或两）个方向。
+        if enabled.contains(.upload) || enabled.contains(.download) {
             let rates = networkCollector.sample()
-            metrics.upload = rates?.up
-            metrics.download = rates?.down
+            if enabled.contains(.upload) { metrics.upload = rates?.up }
+            if enabled.contains(.download) { metrics.download = rates?.down }
         }
 
         return metrics

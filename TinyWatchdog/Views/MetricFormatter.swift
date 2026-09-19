@@ -24,10 +24,10 @@ enum MetricFormatter {
         return "\(Int((ratio * 100).rounded()))%"
     }
 
-    /// 把「字节/秒」变成紧凑的速率文字，单位自动换档，**最小单位是 K/s**。
-    /// 例如：0 -> "0.0 K/s"，512 -> "0.5 K/s"，1536 -> "1.5 K/s"，1572864 -> "1.5 M/s"
-    /// 没有数据（nil）时按 0 显示："0.0 K/s"。
-    /// 数字和单位之间有一个空格，和菜单栏里 "↑ 3.1 K/s" 的样式一致。
+    /// 把「字节/秒」变成菜单栏用的紧凑速率文字：整数 + 单位，不显示小数点。
+    /// 单位自动换档，**最小单位是 K**。
+    /// 例如：0 -> "0K"，512 -> "1K"，1536 -> "2K"，1572864 -> "2M"
+    /// 没有数据（nil）时按 0 显示："0K"。
     static func rate(_ bytesPerSecond: Double?) -> String {
         // nil / 负数都按 0 处理。
         let bytes = max(bytesPerSecond ?? 0, 0)
@@ -42,12 +42,7 @@ enum MetricFormatter {
             index += 1
         }
 
-        // 数字大时（>=100）不显示小数，让菜单栏文字宽度稳定、不要跳来跳去。
-        let decimals = value >= 100 ? 0 : 1
-
-        // String(format:) 是类似 C 语言 printf 的格式化写法：
-        // "%.1f" 表示保留 1 位小数，"%@" 表示插入一段字符串。
-        // 数字和单位之间的空格就是格式串里的那个空格。
-        return String(format: "%.\(decimals)f %@/s", value, units[index])
+        // 四舍五入取整，单位直接贴在数字后面（紧凑、宽度稳定）。
+        return "\(Int(value.rounded()))\(units[index])"
     }
 }

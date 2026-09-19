@@ -23,11 +23,8 @@ struct SettingsView: View {
         // 会自动按「标签 - 控件」的样式排版。
         Form {
             Section("菜单栏显示") {
-                // 「显示图标 + 4 个指标」开关，和下拉菜单共用同一份。
+                // 「显示图标 + 5 个指标」开关，和下拉菜单共用同一份。
                 MetricToggles(settings: settings)
-
-                // 网络上下行位置互换。
-                Toggle("网络上下行互换", isOn: $settings.swapNetwork)
             }
 
             Section("采样") {

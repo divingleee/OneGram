@@ -8,7 +8,7 @@
 //  不再是原生菜单，所以可以用任意布局和控件。
 //
 //  结构（自上而下）：
-//    1. 「显示图标」+ 4 个指标开关
+//    1. 「显示图标」+ 5 个指标开关
 //    2. 分隔线
 //    3. 「偏好设置」「退出」两个按钮
 //
@@ -26,15 +26,6 @@ struct MenuBarContentView: View {
         VStack(alignment: .leading, spacing: 12) {
             // 指标开关（开关在右侧）。
             MetricToggles(settings: settings, trailingSwitch: true)
-
-            // 网络上下行位置互换（开关在右侧）。
-            HStack {
-                Text("上下行互换")
-                Spacer()
-                Toggle("上下行互换", isOn: $settings.swapNetwork)
-                    .labelsHidden()
-                    .toggleStyle(.switch)
-            }
 
             Divider()
 
