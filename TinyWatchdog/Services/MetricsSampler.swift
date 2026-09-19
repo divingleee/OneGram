@@ -50,7 +50,7 @@ final class MetricsSampler {
         // 网络上下行是同一个开关，被勾选时一次读取同时拿到两个方向。
         if enabled.contains(.network) {
             let rates = networkCollector.sample()
-            metrics.upload = rates?.up      // rates 是可选值，用 ?. 取值
+            metrics.upload = rates?.up
             metrics.download = rates?.down
         }
 

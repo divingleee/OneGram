@@ -23,13 +23,11 @@ struct SettingsView: View {
         // 会自动按「标签 - 控件」的样式排版。
         Form {
             Section("菜单栏显示") {
-                // 是否绘制最左侧的小狗图标（只影响菜单栏标签的绘制）。
-                Toggle("显示图标", isOn: $settings.showMenuBarIcon)
+                // 「显示图标 + 4 个指标」开关，和下拉菜单共用同一份。
+                MetricToggles(settings: settings)
 
-                ForEach(MetricType.allCases) { metric in
-                    // 复用和下拉菜单相同的绑定，确保两处状态一致。
-                    Toggle(metric.title, isOn: settings.binding(for: metric))
-                }
+                // 网络上下行位置互换。
+                Toggle("网络上下行互换", isOn: $settings.swapNetwork)
             }
 
             Section("采样") {

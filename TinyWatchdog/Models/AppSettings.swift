@@ -32,6 +32,7 @@ final class AppSettings: ObservableObject {
         static let interval = "refreshInterval"  // 刷新间隔（秒）
         static let dockIcon = "showDockIcon"     // 是否在 Dock 中显示图标
         static let menuBarIcon = "showMenuBarIcon" // 是否在菜单栏显示小狗图标
+        static let swapNetwork = "swapNetwork"   // 是否互换网络上下行位置
     }
 
     // @Published：被它修饰的属性一旦变化，就会通知订阅它的界面刷新。
@@ -65,6 +66,15 @@ final class AppSettings: ObservableObject {
         }
     }
 
+    // 是否互换网络上行 / 下行的显示位置。默认 false（上行在上、下行在下）。
+    // 只影响绘制，和采样无关，所以不用触发 onChange。
+    @Published var swapNetwork: Bool {
+        didSet {
+            guard swapNetwork != oldValue else { return }
+            defaults.set(swapNetwork, forKey: Key.swapNetwork)
+        }
+    }
+
     // 是否在 Dock 中显示图标。默认「显示」。
     // 变化时立刻调用 DockIconController 切换激活策略，并写入 UserDefaults，
     // 下次启动时由 AppDelegate 读取并应用。
@@ -93,8 +103,8 @@ final class AppSettings: ObservableObject {
                     .split(separator: ",")
                     .compactMap { MetricType(rawValue: String($0)) }
             )
-            // 兼容旧版本：早期上行 / 下行是两个独立开关，
-            // 现在合并成 network，只要旧数据里出现过其中之一就打开 network。
+            // 兼容旧版本：之前上行/下行是分开的两个开关，现在合并成 network，
+            // 旧数据里出现过其中之一就打开 network。
             if stored.contains("upload") || stored.contains("download") {
                 metrics.insert(.network)
             }
@@ -113,6 +123,9 @@ final class AppSettings: ObservableObject {
 
         // 没存过时默认 true（菜单栏显示小狗图标）。
         self.showMenuBarIcon = defaults.object(forKey: Key.menuBarIcon) as? Bool ?? true
+
+        // 没存过时默认 false（上行在上、下行在下）。
+        self.swapNetwork = defaults.object(forKey: Key.swapNetwork) as? Bool ?? false
     }
 
     // 查询某个指标是否勾选。

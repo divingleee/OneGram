@@ -4,31 +4,30 @@
 //
 //  【View 层 / 绘制】把「指标数据」画成一张菜单栏用的图片。
 //
-//  样式参考（每个指标一列，共两行）：
-//      19%      11%      75%      ↑ 3.1 K/s
-//      CPU      GPU      MEM      ↓ 28.7 K/s
-//  列与列之间是一条细竖线；上排是数值、下排是名称。
+//  样式（每个指标一列，共两行）：
+//      19%      11%      75%      ↑ 1.2 K/s
+//      CPU      GPU      MEM      ↓ 3.4 K/s
+//  列与列之间是一条细竖线；上排是数值、下排是名称（网络是上行/下行速度）。
 //
-//  【垂直布局模型】把图片沿水平「分界线」切成上下两块：
-//      · 上块：上排文字「吸底」——文字底部贴着分界线，中间留 topRowPadding；
-//      · 下块：下排文字「吸顶」——文字顶部贴着分界线，中间留 bottomRowPadding。
-//  两行之间的实际空隙 = topRowPadding + bottomRowPadding，改这两个值即可控制疏密。
-//  网络列可以单独设置字体和上下 padding。
+//  【垂直布局模型】
+//  图片高度固定（imageHeight），内部去掉上下留白后的空间叫 availableHeight：
+//      · 每列沿「分界线」按 upperToLowerRatio 切分成上块 / 下块；
+//        上排文字「吸底」（底部贴着分界线 + topRowPadding），
+//        下排文字「吸顶」（顶部贴着分界线 - bottomRowPadding）。
+//  两行之间的空隙由 topPadding / bottomPadding 控制。
 //
-//  为什么要画图而不是直接用 SwiftUI 的 VStack？
-//  MenuBarExtra 的 label 对复杂布局（多行、任意 Stack）支持有限，
-//  最稳妥的做法是把它当成一张图片。
+//  为什么把菜单栏内容画成一张图？
+//  MenuBarExtra 的 label 只支持 Text / Image，装不下多行 + 任意布局，所以自绘。
 //
-//  图片会被设成 template（模板），系统会按菜单栏深浅色自动上色，
-//  所以这里统一用黑色绘制即可。
+//  图片是彩色图（左侧 App 图标带白色圆角底），因此 **不是模板图**；
+//  文字颜色根据菜单栏深浅色（menuBarIsDark）自己选黑 / 白。
 //
-//  【性能设计】渲染分三步：makeColumns（组装文字）→ measure（量尺寸）→ render（画）。
-//  并且做了三层缓存/复用，避免每次界面刷新都重复干活：
-//      1. 文字内容没变 → 直接复用上次画好的 NSImage（缓存键 = 文字 + 是否显示图标）；
-//      2. 小狗图标只创建一次（SF Symbol 查找和配置不便宜）；
-//      3. 每段文字只创建一次 CoreText 行，同时读出上/下墨迹（原来创建两次）。
+//  【性能设计】makeColumns（组装）→ measure（量尺寸）→ layout（算位置）→ render（画）。
+//  两层缓存/复用：
+//      1. 内容没变 → 复用上次的 NSImage（缓存键 = 各列文字 + 是否画图标 + 深浅色）；
+//      2. App 图标只取一次。
 //
-//  ★ 想调整菜单栏字体 / 大小 / 间距，只改下面「字体与布局配置」那一块即可。
+//  ★ 想调整字体 / 大小 / 间距，只改下面「字体与布局配置」那一块即可。
 //
 
 import AppKit
@@ -39,16 +38,18 @@ enum MenuBarLabelRenderer {
 
     // MARK: - 字体与布局配置（要手动调样式，改这里）
 
-    /// 上排数值字体：CPU / GPU / 内存的百分比数字。
+    /// 上排数值字体：所有指标的数值（CPU/GPU/内存的百分比、网络的速率）。
     /// monospacedDigit = 等宽数字，数值跳动时宽度不会抖。
     private static let valueFont = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .semibold)
 
-    /// 下排名称字体：CPU / GPU / MEM 这些文字。
+    /// 下排名称字体：CPU / GPU / MEM / 上行 / 下行 这些文字。
     private static let labelFont = NSFont.systemFont(ofSize: 8, weight: .medium)
 
-    /// 网络专用字体：上行（↑）和下行（↓）**两行都用它**，所以大小天然一致。
-    /// 想单独调网络的字号，只改这一行即可，不影响其它指标。
-    private static let networkFont = NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .medium)
+    /// ★ 网络模块上排（上行速度）字体。
+    private static let networkUpFont = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .semibold)
+
+    /// ★ 网络模块下排（下行速度）字体。
+    private static let networkDownFont = NSFont.systemFont(ofSize: 8, weight: .medium)
 
     /// ★ 上块文字「吸底」：文字底部与分界线之间的留白（点）。调大 = 两行更松。
     private static let topRowPadding: CGFloat = 1
@@ -56,22 +57,9 @@ enum MenuBarLabelRenderer {
     /// ★ 下块文字「吸顶」：分界线与文字顶部之间的留白（点）。调大 = 两行更松。
     private static let bottomRowPadding: CGFloat = 1
 
-    /// ★ 网络列单独的上留白（吸底）。
-    private static let networkTopRowPadding: CGFloat = 0
-
-    /// ★ 网络列单独的下留白（吸顶）。
-    private static let networkBottomRowPadding: CGFloat = 0
-
-    /// ★ 网络列文字距离**矩形左边框**的留白（点）。
-    /// 网络列是左对齐的：文字从「矩形左边 + 这个留白」开始排，0 = 紧贴左边。
-    private static let networkLeftPadding: CGFloat = 0
-
     /// ★ 上块高度 : 下块高度的比例（普通指标列），这里就是 3:2。
     /// 每个指标的矩形内部沿垂直方向按 3:2 切分：上 3 份放数字、下 2 份放名称。
     private static let upperToLowerRatio: CGFloat = 3.0 / 2
-
-    /// ★ 网络列单独的比例（1 = 上下两块等高）。
-    private static let networkUpperToLowerRatio: CGFloat = 1 / 1
 
     /// 列之间那条细竖线的宽度（点）。1 在 Retina 上就是 2 个像素，比较精致。
     private static let separatorLineWidth: CGFloat = 1
@@ -82,14 +70,20 @@ enum MenuBarLabelRenderer {
     /// ★ 竖线距离图片**底部**的留白（点）。调大 = 竖线变短。
     private static let separatorBottomPadding: CGFloat = 2
 
+    /// ★ 图标和第一个指标之间的分隔线**是否显示**。
+    private static let showsIconSeparator = true
+
+    /// ★ 图标到「第一根分隔线 / 第一个指标」的距离（点）。调大 = 图标离得更远。
+    private static let iconSeparatorGap: CGFloat = 6
+
     /// ★ 是否画出「上块 / 下块」的背景色，用来区分这两块区域。
     /// ⚠️ 打开后图片不再是模板图（`isTemplate = false`），颜色会原样保留，
     ///    因此不再跟随菜单栏的浅色 / 深色自动反色。只想看正常效果时设成 false。
-    private static let showsBlockBackgrounds = false
+    private static let showsBlockBackgrounds = true
 
     /// 上块（数字那一行）的背景色。用**不透明**的浅色：
     /// 半透明色叠在深色菜单栏上会变暗、黑字就看不清了。
-    private static let upperBlockColor = NSColor(srgbRed: 1, green: 4, blue: 1.00, alpha: 1)
+    private static let upperBlockColor = NSColor(srgbRed: 0.74, green: 0.85, blue: 1.00, alpha: 1)
 
     /// 下块（名称那一行）的背景色。同样用不透明浅色。
     private static let lowerBlockColor = NSColor(srgbRed: 1.00, green: 0.76, blue: 0.76, alpha: 1)
@@ -106,25 +100,18 @@ enum MenuBarLabelRenderer {
     private static let padding: CGFloat = 1
     private static let verticalPadding: CGFloat = 0
 
-    /// 垂直居中时的微调量（点）。
-    /// CoreText 量出来的「墨迹」比实际渲染出来的会略高一点点，
-    /// 直接按墨迹居中会看起来偏上，用这个值把整块往下压一点儿。
-    private static let blockCenteringNudge: CGFloat = 0.75
-
     /// ★ 图片的**固定高度**（点）。
     /// 设成固定值后，菜单栏这一块的高度不会随数值 / 指标变化而跳动。
     /// 内容（数字 + 名称 + 留白）会在这块高度里整体垂直居中。
     /// 只有当你把它设得太小、放不下文字时，才会自动撑到刚好放得下（避免被裁）。
     private static let imageHeight: CGFloat = 22
 
-    /// ★ 每个百分比指标（CPU / GPU / 内存）列的**固定宽度**（点）。
+    /// ★ 每个指标列的**固定宽度**（点）。
     /// 固定宽度可以避免数值变化时菜单栏宽度抖动；31 刚好放下 "100%"。
     private static let metricColumnWidth: CGFloat = 31
 
-    /// ★ 网络列的**固定宽度**（点），比其它列宽一些，能放下 "↓ 1023 K/s"。
-    /// ★ 网络列的固定宽度（点）。**设为 0 表示「不固定，按内容自适应」**：
-    /// 数值短（如 "↑ 0.5 K/s"）列就窄，数值长（如 "↓ 1023 K/s"）列就宽。
-    private static let networkColumnWidth: CGFloat = 52
+    /// ★ 网络模块的固定宽度（点）。`0` = 不固定、按内容自适应。
+    private static let networkColumnWidth: CGFloat = 0
 
     /// 菜单栏背景是不是深色。
     /// 图片不是模板图时（画了彩色背景 / 用了彩色图标），文字和图标就得自己挑颜色。
@@ -154,48 +141,38 @@ enum MenuBarLabelRenderer {
 
     // MARK: - 内部数据结构
 
-    /// 一列的内容：上下两行文字、字体、宽度和对齐方式。
-    /// 网络列的两行都用 `networkFont`，其余列上排用 `valueFont`、下排用 `labelFont`。
-    private struct Column {
-        let top: String
-        let bottom: String
+    /// 一列的「样式」：字体、宽度、留白、对齐方式等排版参数。
+    /// 普通指标列和网络列各有一个，`Column` 只引用它，避免字段到处重复。
+    private struct ColumnStyle {
         let topFont: NSFont
         let bottomFont: NSFont
-        /// 这一列的固定宽度（点）。
+        /// 固定宽度（点），0 = 按内容自适应。
         let columnWidth: CGFloat
         /// 上排文字「吸底」时与分界线的留白。
         let topPadding: CGFloat
         /// 下排文字「吸顶」时与分界线的留白。
         let bottomPadding: CGFloat
-        /// 上块高度是下块高度的多少倍（普通指标 3:2，网络 1:1）。
-        let upperToLowerRatio: CGFloat
-        /// true = 两行文字都靠左对齐（↑ 和 ↓ 对齐）；false = 每行各自在矩形内水平居中。
-        var leftAligned: Bool = false
-        /// true = 把「上下两行」当成一整块，在矩形里**垂直居中**（网络模块用）。
-        /// false = 按 upperToLowerRatio 切分。
-        var centersBlock: Bool = false
-        /// 左对齐时，文字距离矩形左边框的留白（点）。居中时用不到。
-        var leftPadding: CGFloat = 0
+        /// 上块高度是下块高度的多少倍（3:2）。
+        var upperToLowerRatio: CGFloat = 1
+    }
+
+    /// 一列的内容：上下两行文字 + 样式。
+    private struct Column {
+        let top: String
+        let bottom: String
+        let style: ColumnStyle
     }
 
     /// 量好尺寸后的一列：富文本 + 宽度 + 墨迹度量。
     private struct MeasuredColumn {
         let top: NSAttributedString
         let bottom: NSAttributedString
-        let topFont: NSFont
-        let bottomFont: NSFont
-        let leftAligned: Bool
-        let centersBlock: Bool
-        let leftPadding: CGFloat
-        let topPadding: CGFloat
-        let bottomPadding: CGFloat
-        /// 上块高度是下块高度的多少倍。
-        let upperToLowerRatio: CGFloat
+        let style: ColumnStyle
 
         let topWidth: CGFloat      // 上排文字的实际宽度
         let bottomWidth: CGFloat   // 下排文字的实际宽度
         let contentWidth: CGFloat  // 两行中较宽的那个（= 内容块宽度）
-        let columnWidth: CGFloat   // 这一列的固定宽度（至少能放下内容，防止被裁）
+        let columnWidth: CGFloat   // 最终列宽 = max(固定宽度, 内容宽度)，防止被裁
 
         // ---- 墨迹度量（CoreText 按字形轮廓算，单位：点，统一用正数）----
         let topInkTop: CGFloat       // 上排文字在基线之上的高度
@@ -204,9 +181,9 @@ enum MenuBarLabelRenderer {
         let bottomInkBottom: CGFloat // 下排文字在基线之下的深度
 
         /// 上排文字（含留白）最少需要的高度。
-        var requiredUpper: CGFloat { topPadding + topInkBottom + topInkTop }
+        var requiredUpper: CGFloat { style.topPadding + topInkBottom + topInkTop }
         /// 下排文字（含留白）最少需要的高度。
-        var requiredLower: CGFloat { bottomPadding + bottomInkTop + bottomInkBottom }
+        var requiredLower: CGFloat { style.bottomPadding + bottomInkTop + bottomInkBottom }
     }
 
     /// 算好的「绘制指令」：位置都提前算好，绘制时只负责落笔。
@@ -231,8 +208,8 @@ enum MenuBarLabelRenderer {
 
     /// 生成菜单栏图片。一定会返回一张图（最差情况是「只有图标」）。
     /// - Parameter showIcon: 是否绘制最左侧的图标（偏好设置里可关）。
-    static func image(metrics: SystemMetrics, enabled: Set<MetricType>, showIcon: Bool = true) -> NSImage {
-        let columns = makeColumns(metrics: metrics, enabled: enabled)
+    static func image(metrics: SystemMetrics, enabled: Set<MetricType>, showIcon: Bool = true, swapNetwork: Bool = false) -> NSImage {
+        let columns = makeColumns(metrics: metrics, enabled: enabled, swapNetwork: swapNetwork)
 
         // 一个模块都没勾选时，即使用户关掉了「显示图标」也强制画图标：
         // 否则菜单栏上会变成一个没有任何内容的空白项，根本点不到。
@@ -288,26 +265,32 @@ enum MenuBarLabelRenderer {
         // 每列可用的内部高度（去掉上下留白），各列再按自己的比例切分。
         let availableHeight = contentHeight - verticalPadding * 2
 
-        // 竖线左右各留 gap 的空白。
+        // 指标之间分隔线的总占宽（左右各留 gap）。
         let separatorTotal = separatorLineWidth + gap * 2
+        // 图标后第一根分隔线的总占宽（前面用 iconSeparatorGap，后面用 gap）。
+        let firstSeparatorTotal = iconSeparatorGap + separatorLineWidth + gap
 
-        // 小狗图标。关掉「显示图标」时是 nil，宽度计算和绘制都会自动跳过它。
-        // 画了背景色（非模板图）时，图标要自己染成和菜单栏对比的颜色。
+        // 图标。关掉「显示图标」时是 nil。
         let ink = inkColor
         let icon = drawIcon ? clawImage : nil
 
+        // 图标和第一个指标之间是否画分隔线。
+        let firstSeparator = (icon != nil) && showsIconSeparator && !measured.isEmpty
+
         // 先把所有绘制位置算好（水平偏移 + 基线 y），绘制闭包里就只剩画。
-        let items = layout(measured, topInset: verticalPadding, availableHeight: availableHeight)
+        let items = layout(measured, topInset: verticalPadding, availableHeight: availableHeight, firstSeparator: firstSeparator)
 
         // 计算总宽度。
         var totalWidth = padding * 2
-        if let icon {
-            totalWidth += iconWidth(icon)
-            // 后面还有指标列时才需要间隔；只有一个图标时不能加，否则右边会多出一块空白。
-            if !items.isEmpty { totalWidth += gap }
-        }
+        if let icon { totalWidth += iconWidth(icon) }
         for (index, item) in items.enumerated() {
-            if index > 0 { totalWidth += separatorTotal }
+            let isFirst = index == 0
+            if item.hasSeparator {
+                totalWidth += isFirst ? firstSeparatorTotal : separatorTotal
+            } else if isFirst, icon != nil {
+                // 没画分隔线时，图标和第一个指标之间也留一个间隔。
+                totalWidth += iconSeparatorGap
+            }
             totalWidth += item.columnWidth
         }
         totalWidth = ceil(totalWidth)
@@ -329,21 +312,27 @@ enum MenuBarLabelRenderer {
                     width: w,
                     height: clawIconSize
                 ))
-                x += w + (items.isEmpty ? 0 : gap)
+                x += w
             }
 
             // 2) 每个指标一列，列与列之间画一条细竖线。
-            for item in items {
+            for (index, item) in items.enumerated() {
+                let isFirst = index == 0
                 if item.hasSeparator {
                     // 竖线从底部留白画到顶部留白处（见 separatorTopPadding / separatorBottomPadding）。
+                    // 图标后第一根前面用 iconSeparatorGap，其余用 gap。
+                    let leading = isFirst ? iconSeparatorGap : gap
                     ink.setFill()
                     NSBezierPath.fill(NSRect(
-                        x: x + gap,
+                        x: x + leading,
                         y: lineY,
                         width: separatorLineWidth,
                         height: lineHeight
                     ))
-                    x += separatorTotal
+                    x += leading + separatorLineWidth + gap
+                } else if isFirst, icon != nil {
+                    // 没画分隔线时，图标和第一个指标之间也留一个间隔。
+                    x += iconSeparatorGap
                 }
 
                 // 上块 / 下块的背景色（用来区分两块区域）。
@@ -371,35 +360,25 @@ enum MenuBarLabelRenderer {
     /// 把每列的文字转成富文本，并量出宽度和墨迹。
     private static func measure(_ columns: [Column], textColor: NSColor) -> [MeasuredColumn] {
         columns.map { column in
-            let top = attributed(column.top, font: column.topFont, color: textColor)
-            let bottom = attributed(column.bottom, font: column.bottomFont, color: textColor)
+            let style = column.style
+            let top = attributed(column.top, font: style.topFont, color: textColor)
+            let bottom = attributed(column.bottom, font: style.bottomFont, color: textColor)
 
-            let topWidth = ceil(top.size().width)
-            let bottomWidth = ceil(bottom.size().width)
-            let contentWidth = max(topWidth, bottomWidth)
-            // 每段文字只建一次 CoreText 行，同时取上、下两个墨迹值。
-            let topInk = inkMetrics(of: top)
-            let bottomInk = inkMetrics(of: bottom)
+            let topMetrics = lineMetrics(of: top)
+            let bottomMetrics = lineMetrics(of: bottom)
 
             return MeasuredColumn(
                 top: top,
                 bottom: bottom,
-                topFont: column.topFont,
-                bottomFont: column.bottomFont,
-                leftAligned: column.leftAligned,
-                centersBlock: column.centersBlock,
-                leftPadding: column.leftPadding,
-                topPadding: column.topPadding,
-                bottomPadding: column.bottomPadding,
-                upperToLowerRatio: column.upperToLowerRatio,
-                topWidth: topWidth,
-                bottomWidth: bottomWidth,
-                contentWidth: contentWidth,
-                columnWidth: max(column.columnWidth, contentWidth),
-                topInkTop: topInk.top,
-                topInkBottom: topInk.bottom,
-                bottomInkTop: bottomInk.top,
-                bottomInkBottom: bottomInk.bottom
+                style: style,
+                topWidth: ceil(topMetrics.width),
+                bottomWidth: ceil(bottomMetrics.width),
+                contentWidth: max(ceil(topMetrics.width), ceil(bottomMetrics.width)),
+                columnWidth: max(style.columnWidth, max(ceil(topMetrics.width), ceil(bottomMetrics.width))),
+                topInkTop: topMetrics.inkTop,
+                topInkBottom: topMetrics.inkBottom,
+                bottomInkTop: bottomMetrics.inkTop,
+                bottomInkBottom: bottomMetrics.inkBottom
             )
         }
     }
@@ -408,71 +387,53 @@ enum MenuBarLabelRenderer {
     /// - Parameters:
     ///   - topInset: 图片顶部留白（分界线从这里往下算）。
     ///   - availableHeight: 去掉上下留白后可用于摆放文字的内部高度。
-    private static func layout(_ measured: [MeasuredColumn], topInset: CGFloat, availableHeight: CGFloat) -> [DrawItem] {
+    ///   - firstSeparator: 图标和第一个指标之间是否画分隔线。
+    private static func layout(_ measured: [MeasuredColumn], topInset: CGFloat, availableHeight: CGFloat, firstSeparator: Bool) -> [DrawItem] {
         measured.enumerated().map { index, item in
             // 分界线位置（自下而上到「下排文字顶部」的距离）：
-            //  · centersBlock：把两行当成一整块垂直居中 → 上下剩余空白各一半；
-            //  · 其它：按 upperToLowerRatio 切分（下块 = available / (1 + ratio)），
-            //    再用「最少需要的高度」夹紧，保证任何比例下都不会把文字裁掉。
-            let lowerHeight: CGFloat
-            if item.centersBlock {
-                let slack = max(0, availableHeight - item.requiredUpper - item.requiredLower)
-                // 分界线往下挪 nudge → 整块跟着往下挪，抵消上面的测量误差
-                lowerHeight = item.requiredLower + slack / 2 - blockCenteringNudge
-            } else {
-                let desiredLower = availableHeight / (1 + item.upperToLowerRatio)
-                lowerHeight = min(
-                    max(desiredLower, item.requiredLower),
-                    availableHeight - item.requiredUpper
-                )
-            }
+            // 按 upperToLowerRatio 切分（下块 = available / (1 + ratio)），
+            // 再用「最少需要的高度」夹紧，保证任何比例下都不会把文字裁掉。
+            let desiredLower = availableHeight / (1 + item.style.upperToLowerRatio)
+            let lowerHeight = min(
+                max(desiredLower, item.requiredLower),
+                availableHeight - item.requiredUpper
+            )
             let splitY = topInset + lowerHeight
 
             // 上排「吸底」：墨迹底部在分界线上方 topPadding 处。
-            let topBaseline = splitY + item.topPadding + item.topInkBottom
+            let topBaseline = splitY + item.style.topPadding + item.topInkBottom
             // 下排「吸顶」：墨迹顶部在分界线下方 bottomPadding 处。
-            let bottomBaseline = splitY - item.bottomPadding - item.bottomInkTop
+            let bottomBaseline = splitY - item.style.bottomPadding - item.bottomInkTop
 
-            // 水平位置：
-            //  · 普通列：上下两行各自在矩形内水平居中；
-            //  · 网络列（leftAligned）：两行左对齐（↑ 和 ↓ 对齐），
-            //    整块从「矩形左边 + leftPadding」开始排。
-            let blockX = item.leftAligned
-                ? item.leftPadding
-                : (item.columnWidth - item.contentWidth) / 2
             return DrawItem(
                 top: item.top,
                 bottom: item.bottom,
-                topDX: item.leftAligned ? blockX : (item.columnWidth - item.topWidth) / 2,
-                bottomDX: item.leftAligned ? blockX : (item.columnWidth - item.bottomWidth) / 2,
+                // 上下两行各自在矩形内水平居中。
+                topDX: (item.columnWidth - item.topWidth) / 2,
+                bottomDX: (item.columnWidth - item.bottomWidth) / 2,
                 // draw(at:) 用的是文字包围盒左下角，所以要从基线往下挪一个 descender。
-                topY: topBaseline + item.topFont.descender,
-                bottomY: bottomBaseline + item.bottomFont.descender,
+                topY: topBaseline + item.style.topFont.descender,
+                bottomY: bottomBaseline + item.style.bottomFont.descender,
                 columnWidth: item.columnWidth,
-                hasSeparator: index > 0,
-                // 背景矩形：
-                //  · centersBlock（网络）：整列就是**一个**矩形，铺满可用高度；
-                //  · 其它：按分界线切成「上块 / 下块」两块。
-                upperBlockRect: item.centersBlock
-                    ? NSRect(x: 0, y: topInset, width: item.columnWidth, height: availableHeight)
-                    : NSRect(x: 0, y: splitY, width: item.columnWidth, height: availableHeight - lowerHeight),
-                lowerBlockRect: item.centersBlock
-                    ? .zero
-                    : NSRect(x: 0, y: splitY - lowerHeight, width: item.columnWidth, height: lowerHeight)
+                hasSeparator: index > 0 || firstSeparator,
+                // 背景矩形：按分界线切成「上块 / 下块」两块。
+                upperBlockRect: NSRect(x: 0, y: splitY, width: item.columnWidth, height: availableHeight - lowerHeight),
+                lowerBlockRect: NSRect(x: 0, y: splitY - lowerHeight, width: item.columnWidth, height: lowerHeight)
             )
         }
     }
 
-    // MARK: - 字形墨迹测量（用于精确计算行间距）
+    // MARK: - 字形测量（用同一个 CTLine 取宽度 + 墨迹）
 
-    /// 一段文字在基线上方 / 下方的墨迹高度（都取正数）。
-    /// 用 CoreText 的 `.useGlyphPathBounds` 按「字形轮廓」算，而不是按字体行高，
+    /// 用**同一个** CTLine 拿到宽度、基线上方墨迹、基线下方墨迹。
+    /// 宽度用排版宽度（CTLineGetTypographicBounds），墨迹用字形轮廓（.useGlyphPathBounds），
     /// 这样 ↑↓ 箭头、"/" 这些特殊字形都能算准。
-    private static func inkMetrics(of string: NSAttributedString) -> (top: CGFloat, bottom: CGFloat) {
-        guard string.length > 0 else { return (0, 0) }
+    private static func lineMetrics(of string: NSAttributedString) -> (width: CGFloat, inkTop: CGFloat, inkBottom: CGFloat) {
+        guard string.length > 0 else { return (0, 0, 0) }
         let line = CTLineCreateWithAttributedString(string)
+        let width = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
         let bounds = CTLineGetBoundsWithOptions(line, .useGlyphPathBounds)
-        return (bounds.maxY, abs(bounds.minY))
+        return (width, bounds.maxY, abs(bounds.minY))
     }
 
     /// 生成一段「带字体和颜色」的富文本。
@@ -482,75 +443,53 @@ enum MenuBarLabelRenderer {
 
     // MARK: - 组装各列内容
 
-    private static func makeColumns(metrics: SystemMetrics, enabled: Set<MetricType>) -> [Column] {
+    private static func makeColumns(metrics: SystemMetrics, enabled: Set<MetricType>, swapNetwork: Bool) -> [Column] {
         var columns: [Column] = []
 
-        if enabled.contains(.cpu) {
+        // 所有指标共用一套样式：数值大字在上、名称小字在下，按 3:2 切分、居中。
+        let metricStyle = ColumnStyle(
+            topFont: valueFont,
+            bottomFont: labelFont,
+            columnWidth: metricColumnWidth,
+            topPadding: topRowPadding,
+            bottomPadding: bottomRowPadding,
+            upperToLowerRatio: upperToLowerRatio
+        )
+
+        // 网络模块单独的样式：上下行字体、宽度都能独立调，其余（留白、比例、居中）和指标一致。
+        let networkStyle = ColumnStyle(
+            topFont: networkUpFont,
+            bottomFont: networkDownFont,
+            columnWidth: networkColumnWidth,
+            topPadding: topRowPadding,
+            bottomPadding: bottomRowPadding,
+            upperToLowerRatio: upperToLowerRatio
+        )
+
+        // CPU / GPU / 内存：百分比 + 名称。
+        let percents: [(metric: MetricType, label: String, value: Double?)] = [
+            (.cpu, "CPU", metrics.cpu),
+            (.gpu, "GPU", metrics.gpu),
+            (.memory, "MEM", metrics.memory),
+        ]
+        for entry in percents where enabled.contains(entry.metric) {
             columns.append(Column(
-                top: MetricFormatter.percent(metrics.cpu),
-                bottom: "CPU",
-                topFont: valueFont,
-                bottomFont: labelFont,
-                columnWidth: metricColumnWidth,
-                topPadding: topRowPadding,
-                bottomPadding: bottomRowPadding,
-                upperToLowerRatio: upperToLowerRatio
-            ))
-        }
-        if enabled.contains(.gpu) {
-            columns.append(Column(
-                top: MetricFormatter.percent(metrics.gpu),
-                bottom: "GPU",
-                topFont: valueFont,
-                bottomFont: labelFont,
-                columnWidth: metricColumnWidth,
-                topPadding: topRowPadding,
-                bottomPadding: bottomRowPadding,
-                upperToLowerRatio: upperToLowerRatio
-            ))
-        }
-        if enabled.contains(.memory) {
-            columns.append(Column(
-                top: MetricFormatter.percent(metrics.memory),
-                bottom: "MEM",
-                topFont: valueFont,
-                bottomFont: labelFont,
-                columnWidth: metricColumnWidth,
-                topPadding: topRowPadding,
-                bottomPadding: bottomRowPadding,
-                upperToLowerRatio: upperToLowerRatio
+                top: MetricFormatter.percent(entry.value),
+                bottom: entry.label,
+                style: metricStyle
             ))
         }
 
-        // 网络上行、下行合成同一列：上行在上、下行在下。
-        // 两行统一使用 networkFont，保证上下行字号完全一致。
-        // 箭头后面留一个空格，和参考样式一致： "↑ 3.1 K/s"。
-        // 上下留白用 network*Padding，可以单独调（不受其它指标影响）。
+        // 网络上行 / 下行：合并成**一个**模块，样式和其它指标一样（3:2 切分、居中）。
+        // 上排显示上行速度、下排显示下行速度，速度前加箭头。
+        // swapNetwork = true 时上下互换（下行在上、上行在下）。
         if enabled.contains(.network) {
-            // 上行、下行放在**同一个文本**里，用换行符 \n 分成两行。
-            let text = "↑ " + MetricFormatter.rate(metrics.upload)
-                + "\n"
-                + "↓ " + MetricFormatter.rate(metrics.download)
-
-            // 内部再按 \n 拆成两行分别排版：
-            // 直接用「多行文本」绘制的话，行距只能用字体默认行高（10pt 字体约 12pt/行），
-            // 两行加起来就超过菜单栏高度了；拆开后可以用 ink + padding 精确控制行距。
-            let lines = text
-                .split(separator: "\n", omittingEmptySubsequences: false)
-                .map(String.init)
-
+            let upText = "↑ " + MetricFormatter.rate(metrics.upload)
+            let downText = "↓ " + MetricFormatter.rate(metrics.download)
             columns.append(Column(
-                top: lines.first ?? "",
-                bottom: lines.count > 1 ? lines[1] : "",
-                topFont: networkFont,
-                bottomFont: networkFont,
-                columnWidth: networkColumnWidth,
-                topPadding: networkTopRowPadding,
-                bottomPadding: networkBottomRowPadding,
-                upperToLowerRatio: networkUpperToLowerRatio,
-                leftAligned: true,
-                centersBlock: true,
-                leftPadding: networkLeftPadding
+                top: swapNetwork ? downText : upText,
+                bottom: swapNetwork ? upText : downText,
+                style: networkStyle
             ))
         }
 

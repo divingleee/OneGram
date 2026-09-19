@@ -35,7 +35,8 @@ struct MenuBarLabelView: View {
         Image(nsImage: MenuBarLabelRenderer.image(
             metrics: viewModel.metrics,
             enabled: settings.enabledMetrics,
-            showIcon: settings.showMenuBarIcon
+            showIcon: settings.showMenuBarIcon,
+            swapNetwork: settings.swapNetwork
         ))
     }
 }

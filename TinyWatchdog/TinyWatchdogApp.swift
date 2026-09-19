@@ -55,16 +55,16 @@ struct TinyWatchdogApp: App {
 
         // MARK: 菜单栏图标（MenuBarExtra）
         // MenuBarExtra 会在 macOS 顶部菜单栏放一个图标：
-        //   - 第一个闭包 { }  = 点击后弹出的下拉内容
+        //   - 第一个闭包 { }  = 点击后弹出的内容
         //   - label: 闭包      = 菜单栏上直接显示的图标与文字（常驻可见）
         MenuBarExtra {
-            MenuBarContentView(viewModel: viewModel, settings: viewModel.settings)
+            MenuBarContentView(settings: viewModel.settings)
         } label: {
             MenuBarLabelView(viewModel: viewModel, settings: viewModel.settings)
         }
-        // .menuBarExtraStyle(.menu) 表示用「原生菜单」样式弹出，
-        // 里面可以放 Toggle / Button，和系统菜单长得一样。
-        .menuBarExtraStyle(.menu)
+        // .window 样式：点击后弹出的是一个 SwiftUI popover（可用任意布局），
+        // 而不是原生菜单。注意：这会失去原生菜单的键盘导航与右键打开能力。
+        .menuBarExtraStyle(.window)
 
         // MARK: 偏好设置窗口（Settings）
         // Settings 是 macOS 原生首选项窗口：⌘, 或点击「偏好设置…」时出现。

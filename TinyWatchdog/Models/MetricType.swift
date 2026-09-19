@@ -30,15 +30,4 @@ enum MetricType: String, CaseIterable, Identifiable {
         case .network: return "网络上行 / 下行"
         }
     }
-
-    // 对应的 SF Symbols 图标名（系统内置图标库，不需要自己准备图片）。
-    // 目前界面里暂未直接使用，保留方便以后在设置窗口里给每个指标加图标。
-    var symbolName: String {
-        switch self {
-        case .cpu:     return "cpu"
-        case .gpu:     return "display"
-        case .memory:  return "memorychip"
-        case .network: return "arrow.up.arrow.down"
-        }
-    }
 }
