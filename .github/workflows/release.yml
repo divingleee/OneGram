@@ -12,31 +12,43 @@ permissions:
 jobs:
   build-and-release:
     name: Build DMG & Release
-    runs-on: macos-latest
+    # Project's MACOSX_DEPLOYMENT_TARGET is 27.0, so it needs Xcode 27 (macOS 27 SDK).
+    # `macos-latest` currently ships Xcode 26 and fails to build it.
+    runs-on: xcode-27
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Select latest Xcode
-        run: |
-          sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -n 1)/Contents/Developer"
-          xcodebuild -version
+      - name: Show Xcode version
+        run: xcodebuild -version
 
       - name: Resolve version
         id: version
         run: |
           if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
-            VERSION="${GITHUB_REF_NAME#v}"
+            TAG="${GITHUB_REF_NAME}"            # e.g. v0.0.1-Beta
           else
-            VERSION="0.0.${GITHUB_RUN_NUMBER}"
+            TAG="v0.0.${GITHUB_RUN_NUMBER}"
           fi
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "Resolved version: ${VERSION}"
+          VERSION="${TAG#v}"                    # 0.0.1-Beta
+          MARKETING="${VERSION%%-*}"            # 0.0.1
+          if [[ "${VERSION}" == *-* ]]; then
+            PRERELEASE="true"
+          else
+            PRERELEASE="false"
+          fi
+          {
+            echo "tag=${TAG}"
+            echo "version=${VERSION}"
+            echo "marketing=${MARKETING}"
+            echo "prerelease=${PRERELEASE}"
+          } >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG} version=${VERSION} marketing=${MARKETING} prerelease=${PRERELEASE}"
 
       - name: Build (archive)
         env:
-          VERSION: ${{ steps.version.outputs.version }}
+          MARKETING: ${{ steps.version.outputs.marketing }}
         run: |
           xcodebuild archive \
             -project OneGram.xcodeproj \
@@ -44,7 +56,7 @@ jobs:
             -configuration Release \
             -destination 'generic/platform=macOS' \
             -archivePath "$RUNNER_TEMP/OneGram.xcarchive" \
-            MARKETING_VERSION="${VERSION}" \
+            MARKETING_VERSION="${MARKETING}" \
             CURRENT_PROJECT_VERSION="${GITHUB_RUN_NUMBER}" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
@@ -53,7 +65,7 @@ jobs:
       - name: Package app into DMG
         id: package
         env:
-          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ steps.version.outputs.tag }}
         run: |
           APP="$RUNNER_TEMP/OneGram.xcarchive/Products/Applications/OneGram.app"
           test -d "$APP"
@@ -67,7 +79,7 @@ jobs:
           cp -R "$APP" "$STAGING/"
           ln -s /Applications "$STAGING/Applications"
 
-          DMG="OneGram-${VERSION}.dmg"
+          DMG="OneGram-${TAG}.dmg"
           hdiutil create -volname "OneGram" -srcfolder "$STAGING" -ov -format UDZO "$DMG"
           echo "dmg=${DMG}" >> "$GITHUB_OUTPUT"
           ls -lh "$DMG"
@@ -75,8 +87,9 @@ jobs:
       - name: Upload Release
         uses: softprops/action-gh-release@v2
         with:
-          name: OneGram ${{ steps.version.outputs.version }}
-          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}', steps.version.outputs.version) }}
+          name: OneGram ${{ steps.version.outputs.tag }}
+          tag_name: ${{ steps.version.outputs.tag }}
+          prerelease: ${{ steps.version.outputs.prerelease }}
           generate_release_notes: true
           files: ${{ steps.package.outputs.dmg }}
         env:
