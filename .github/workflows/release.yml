@@ -1,0 +1,83 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build DMG & Release
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select latest Xcode
+        run: |
+          sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -n 1)/Contents/Developer"
+          xcodebuild -version
+
+      - name: Resolve version
+        id: version
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="0.0.${GITHUB_RUN_NUMBER}"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Resolved version: ${VERSION}"
+
+      - name: Build (archive)
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          xcodebuild archive \
+            -project OneGram.xcodeproj \
+            -scheme OneGram \
+            -configuration Release \
+            -destination 'generic/platform=macOS' \
+            -archivePath "$RUNNER_TEMP/OneGram.xcarchive" \
+            MARKETING_VERSION="${VERSION}" \
+            CURRENT_PROJECT_VERSION="${GITHUB_RUN_NUMBER}" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=""
+
+      - name: Package app into DMG
+        id: package
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          APP="$RUNNER_TEMP/OneGram.xcarchive/Products/Applications/OneGram.app"
+          test -d "$APP"
+
+          # Ad-hoc sign so the app runs on Apple Silicon without a Developer ID.
+          codesign --force --sign - --timestamp=none "$APP" || true
+          codesign --verify --verbose=2 "$APP" || true
+
+          STAGING="$RUNNER_TEMP/dmg"
+          mkdir -p "$STAGING"
+          cp -R "$APP" "$STAGING/"
+          ln -s /Applications "$STAGING/Applications"
+
+          DMG="OneGram-${VERSION}.dmg"
+          hdiutil create -volname "OneGram" -srcfolder "$STAGING" -ov -format UDZO "$DMG"
+          echo "dmg=${DMG}" >> "$GITHUB_OUTPUT"
+          ls -lh "$DMG"
+
+      - name: Upload Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: OneGram ${{ steps.version.outputs.version }}
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}', steps.version.outputs.version) }}
+          generate_release_notes: true
+          files: ${{ steps.package.outputs.dmg }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
