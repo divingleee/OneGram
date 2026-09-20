@@ -1,6 +1,6 @@
 //
 //  GenerateMenuBarIcon.swift
-//  TinyWatchdog
+//  OneGram
 //
 //  ⚠️ 目前菜单栏图标直接用 App 图标（`NSImage(named: NSImage.applicationIconName)`），
 //  **没有**使用 `MenuBarIcon` imageset，所以这个脚本暂时用不到，保留备用。
@@ -21,7 +21,7 @@
 //  例：
 //      swift Scripts/GenerateMenuBarIcon.swift \
 //        ~/Downloads/macOS_AppIcon_Transparent_Bundle/icon_1024x1024_transparent.png \
-//        TinyWatchdog/Assets.xcassets/MenuBarIcon.imageset
+//        OneGram/Assets.xcassets/MenuBarIcon.imageset
 //
 //  生成后 imageset 的 Contents.json 需要包含这两个文件（1x / 2x）
 //  （并建议设置 "template-rendering-intent" : "template"）。

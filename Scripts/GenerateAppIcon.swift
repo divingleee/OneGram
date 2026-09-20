@@ -1,6 +1,6 @@
 //
 //  GenerateAppIcon.swift
-//  TinyWatchdog
+//  OneGram
 //
 //  【开发脚本】把一张「透明底」的抓痕素材合成成完整的 macOS App 图标：
 //  白色圆角底（留白 8%、圆角 22.37%、极浅灰描边）+ 居中缩放的素材。
@@ -14,7 +14,7 @@
 //  例：
 //      swift Scripts/GenerateAppIcon.swift \
 //        ~/Downloads/macOS_AppIcon_Transparent_Bundle/icon_1024x1024_transparent.png \
-//        TinyWatchdog/Assets.xcassets/AppIcon.appiconset
+//        OneGram/Assets.xcassets/AppIcon.appiconset
 //
 
 import AppKit
