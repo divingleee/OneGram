@@ -80,7 +80,7 @@ jobs:
           ln -s /Applications "$STAGING/Applications"
 
           DMG="OneGram-${TAG}.dmg"
-          hdiutil create -volname "OneGram" -srcfolder "$STAGING" -ov -format UDZO "$DMG"
+          hdiutil create -volname "OneGram" -srcfolder "$STAGING" -ov -format ULMO "$DMG"
           echo "dmg=${DMG}" >> "$GITHUB_OUTPUT"
           ls -lh "$DMG"
 
@@ -90,7 +90,7 @@ jobs:
           name: OneGram ${{ steps.version.outputs.tag }}
           tag_name: ${{ steps.version.outputs.tag }}
           prerelease: ${{ steps.version.outputs.prerelease }}
-          generate_release_notes: true
+          body: 优化已知问题
           files: ${{ steps.package.outputs.dmg }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
