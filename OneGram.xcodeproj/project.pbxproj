@@ -9,7 +9,6 @@
 /* Begin PBXFileReference section */
 		6197BAB9305BC89A00D52F25 /* OneGram.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OneGram.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A1B2C3D4E5F60718290A0B0C /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
-		B2C3D4E5F60718290A0B0C0D /* AGENTS.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = AGENTS.md; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -33,7 +32,6 @@
 			isa = PBXGroup;
 			children = (
 				A1B2C3D4E5F60718290A0B0C /* README.md */,
-				B2C3D4E5F60718290A0B0C0D /* AGENTS.md */,
 				6197BABB305BC89A00D52F25 /* OneGram */,
 				6197BABA305BC89A00D52F25 /* Products */,
 			);
@@ -272,8 +270,8 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				ASSETCATALOG_COMPILER_OPTIMIZATION = space;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_OPTIMIZATION = space;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
