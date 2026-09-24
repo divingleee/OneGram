@@ -12,7 +12,7 @@
 //  为什么画成一张图：MenuBarExtra 的 label 只支持 Text / Image，装不下多行布局。
 //
 //  图片**不是**模板图（isTemplate = false）：左侧 App 图标是彩色图、带白色圆角底，
-//  按模板渲染会被压成纯色方块，所以文字颜色按菜单栏深浅色自己选黑 / 白。
+//  按模板渲染会被压成纯色方块，所以文字颜色自己画上去（自动 / 黑 / 白，见 MenuBarTextColor）。
 //
 //  流程：makeColumns（组装文案）→ layout（测量 + 盒式布局，产出绝对坐标）→ draw（落笔）。
 //  内容没变时直接复用上次的 NSImage（缓存键 = 各列文字 + 图标开关 + 深浅色）。
@@ -71,11 +71,20 @@ enum MenuBarLabelRenderer {
 
     // MARK: - 通用取值
 
-    /// 菜单栏是不是深色。图片不是模板图，文字和图标颜色要自己选黑 / 白。
+    /// 菜单栏是不是深色。文字颜色设为「自动」时据此选黑 / 白。
     private static var menuBarIsDark: Bool {
         NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
     }
-    private static var inkColor: NSColor { menuBarIsDark ? .white : .black }
+
+    /// 解析最终的文字 / 分隔线颜色：
+    /// auto → 按菜单栏深浅色选黑 / 白；black / white → 用户指定。
+    private static func inkColor(for textColor: MenuBarTextColor) -> NSColor {
+        switch textColor {
+        case .auto:  return menuBarIsDark ? .white : .black
+        case .black: return .black
+        case .white: return .white
+        }
+    }
 
     /// 图标按 iconSize 缩放后的宽度（保持原图比例）。
     private static func iconWidth(_ image: NSImage) -> CGFloat {
@@ -163,19 +172,27 @@ enum MenuBarLabelRenderer {
     private static var cachedImage: NSImage?
 
     /// 生成菜单栏图片，一定会返回一张图。
-    static func image(metrics: SystemMetrics, enabled: Set<MetricType>, showIcon: Bool = true) -> NSImage {
+    static func image(
+        metrics: SystemMetrics,
+        enabled: Set<MetricType>,
+        showIcon: Bool = true,
+        textColor: MenuBarTextColor = .auto
+    ) -> NSImage {
         let columns = makeColumns(metrics: metrics, enabled: enabled)
         // 一个指标都没勾选时，即使用户关掉了图标也强制画：否则菜单栏上是点不到的空白项。
         let drawIcon = showIcon || columns.isEmpty
 
         // 数值经常连续几次不变（如 CPU 一直是 18%），缓存能跳过全部绘制。
-        let key = cacheKey(for: columns, drawIcon: drawIcon) + (menuBarIsDark ? "#d" : "#l")
+        // 键里带上颜色设置和当前深浅色：auto 下系统切换深浅色时也要重画。
+        let ink = inkColor(for: textColor)
+        let key = cacheKey(for: columns, drawIcon: drawIcon)
+            + "#\(textColor.rawValue)\(menuBarIsDark ? "d" : "l")"
         if key == cachedKey, let cachedImage {
             return cachedImage
         }
 
-        let plan = layout(columns: columns, drawIcon: drawIcon)
-        let image = draw(plan)
+        let plan = layout(columns: columns, drawIcon: drawIcon, ink: ink)
+        let image = draw(plan, ink: ink)
         cachedKey = key
         cachedImage = image
         return image
@@ -187,8 +204,8 @@ enum MenuBarLabelRenderer {
 
     // MARK: - 布局（测量 → 盒式布局 → 单遍算出全部绝对坐标）
 
-    private static func layout(columns: [Column], drawIcon: Bool) -> LayoutPlan {
-        let textColor = style.showsBlockBackgrounds ? NSColor.black : inkColor
+    private static func layout(columns: [Column], drawIcon: Bool, ink: NSColor) -> LayoutPlan {
+        let textColor = style.showsBlockBackgrounds ? NSColor.black : ink
         let measured = columns.map { column -> MeasuredColumn in
             let top = attributed(column.top, font: column.style.topFont, color: textColor)
             let bottom = attributed(column.bottom, font: column.style.bottomFont, color: textColor)
@@ -281,7 +298,7 @@ enum MenuBarLabelRenderer {
 
     // MARK: - 绘制（只落笔，不做任何计算）
 
-    private static func draw(_ plan: LayoutPlan) -> NSImage {
+    private static func draw(_ plan: LayoutPlan, ink: NSColor) -> NSImage {
         let image = NSImage(size: plan.size, flipped: false) { _ in
             if let frame = plan.iconFrame {
                 clawImage?.draw(in: frame)
@@ -296,7 +313,7 @@ enum MenuBarLabelRenderer {
                 column.topText.draw(at: column.topOrigin)
                 column.bottomText.draw(at: column.bottomOrigin)
                 if let rect = column.separatorRect {
-                    inkColor.setFill()
+                    ink.setFill()
                     NSBezierPath.fill(rect)
                 }
             }

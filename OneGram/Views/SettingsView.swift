@@ -25,6 +25,14 @@ struct SettingsView: View {
             Section("菜单栏显示") {
                 // 「显示图标 + 5 个指标」开关，和下拉菜单共用同一份。
                 MetricToggles(settings: settings)
+
+                // 文字颜色：自动（跟随系统深浅色）/ 黑 / 白。
+                Picker("文字颜色", selection: $settings.menuBarTextColor) {
+                    ForEach(MenuBarTextColor.allCases) { color in
+                        Text(color.title).tag(color)
+                    }
+                }
+                .pickerStyle(.segmented)
             }
 
             Section("采样") {

@@ -32,6 +32,7 @@ final class AppSettings: ObservableObject {
         static let interval = "refreshInterval"  // 刷新间隔（秒）
         static let dockIcon = "showDockIcon"     // 是否在 Dock 中显示图标
         static let menuBarIcon = "showMenuBarIcon" // 是否在菜单栏显示小狗图标
+        static let textColor = "menuBarTextColor"  // 菜单栏文字颜色（自动 / 黑 / 白）
     }
 
     // @Published：被它修饰的属性一旦变化，就会通知订阅它的界面刷新。
@@ -62,6 +63,15 @@ final class AppSettings: ObservableObject {
         didSet {
             guard showMenuBarIcon != oldValue else { return }
             defaults.set(showMenuBarIcon, forKey: Key.menuBarIcon)
+        }
+    }
+
+    // 菜单栏文字颜色。默认「自动」（按菜单栏深浅色选黑 / 白）。
+    // 只影响绘制（MenuBarLabelRenderer），和采样无关，所以不用触发 onChange。
+    @Published var menuBarTextColor: MenuBarTextColor {
+        didSet {
+            guard menuBarTextColor != oldValue else { return }
+            defaults.set(menuBarTextColor.rawValue, forKey: Key.textColor)
         }
     }
 
@@ -114,6 +124,10 @@ final class AppSettings: ObservableObject {
 
         // 没存过时默认 true（菜单栏显示小狗图标）。
         self.showMenuBarIcon = defaults.object(forKey: Key.menuBarIcon) as? Bool ?? true
+
+        // 没存过时默认「自动」。
+        self.menuBarTextColor = defaults.string(forKey: Key.textColor)
+            .flatMap(MenuBarTextColor.init(rawValue:)) ?? .auto
     }
 
     // 查询某个指标是否勾选。
