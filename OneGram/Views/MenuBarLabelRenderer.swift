@@ -29,10 +29,10 @@ enum MenuBarLabelRenderer {
 
     private struct Style {
         /// 数值字体：等宽数字，数值跳动时宽度不抖。
-        let valueFont = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .semibold)
+        let valueFont = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .semibold)
         let labelFont = NSFont.systemFont(ofSize: 6, weight: .medium)
         /// 网络两列的字体，默认与指标列一致（同字号才能协调）。
-        let networkValueFont = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .semibold)
+        let networkValueFont = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .semibold)
         let networkLabelFont = NSFont.systemFont(ofSize: 6, weight: .medium)
 
         /// 上块 : 下块的高度比。
@@ -57,7 +57,7 @@ enum MenuBarLabelRenderer {
         /// 只有放不下文字时才会自动撑高（见 minimumHeight）。
         let imageHeight: CGFloat = 22
 
-        let metricColumnWidth: CGFloat = 35    // 刚好放下 "100%"
+        let metricColumnWidth: CGFloat = 35    // 固定宽度，数值变化时不撑宽菜单栏
         let networkColumnWidth: CGFloat = 35    // 0 = 按内容自适应
 
         /// 调试用：给上 / 下两块涂色。打开后文字固定黑色、不再跟随深浅色。
@@ -135,7 +135,7 @@ enum MenuBarLabelRenderer {
         let style: ColumnStyle
         let topSize: CGSize
         let bottomSize: CGSize
-        let columnWidth: CGFloat   // max(固定宽度, 内容宽度)，防止裁字
+        let columnWidth: CGFloat   // 固定宽度；配置为 0 时按内容自适应
     }
 
     /// 一列的绘制指令。坐标全部是图片里的绝对坐标。
@@ -207,13 +207,20 @@ enum MenuBarLabelRenderer {
     private static func layout(columns: [Column], drawIcon: Bool, ink: NSColor) -> LayoutPlan {
         let textColor = style.showsBlockBackgrounds ? NSColor.black : ink
         let measured = columns.map { column -> MeasuredColumn in
-            let top = attributed(column.top, font: column.style.topFont, color: textColor)
+            var top = attributed(column.top, font: column.style.topFont, color: textColor)
+            // 固定列宽时，让较长的数值缩小到列内，避免撑宽菜单栏或裁字。
+            if column.style.columnWidth > 0, top.size().width > column.style.columnWidth {
+                let font = column.style.topFont
+                let scale = column.style.columnWidth / top.size().width
+                let fittedFont = NSFont(descriptor: font.fontDescriptor, size: font.pointSize * scale) ?? font
+                top = attributed(column.top, font: fittedFont, color: textColor)
+            }
             let bottom = attributed(column.bottom, font: column.style.bottomFont, color: textColor)
             let contentWidth = max(top.size().width, bottom.size().width)
             return MeasuredColumn(
                 top: top, bottom: bottom, style: column.style,
                 topSize: top.size(), bottomSize: bottom.size(),
-                columnWidth: max(column.style.columnWidth, contentWidth)
+                columnWidth: column.style.columnWidth > 0 ? column.style.columnWidth : contentWidth
             )
         }
 

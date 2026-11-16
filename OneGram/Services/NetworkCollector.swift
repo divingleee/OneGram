@@ -21,7 +21,7 @@ final class NetworkCollector {
         var down: UInt32  // 已接收字节（下行）
     }
 
-    // 按网卡名字缓存上一次的值，例如 ["en0": ..., "utun0": ...]。
+    // 按网卡名字缓存上一次的值，例如 ["en0": ..., "en1": ...]。
     private var previous: [String: Counters] = [:]
 
     // 上一次采样的时间点，用来算时间间隔。
@@ -59,10 +59,15 @@ final class NetworkCollector {
 
                 let name = String(cString: interface.ifa_name)
 
-                // lo0 是本地回环（自己和自己通信），不算真实网络流量。
-                if name != "lo0" {
-                    // ifa_data 是 void*，用 assumingMemoryBound 告诉编译器它其实是 if_data 结构体。
-                    let counters = data.assumingMemoryBound(to: if_data.self).pointee
+                // ifa_data 是 void*，实际指向 if_data 结构体。
+                let counters = data.assumingMemoryBound(to: if_data.self).pointee
+
+                // macOS 的 Wi-Fi / 有线网卡使用 en* 名称和 Ethernet 链路类型。
+                // 只统计这些已启用且正在运行的接口：utun 等代理隧道、
+                // lo0 回环、bridge、awdl 等接口会重复计入或混入本地流量。
+                let isActive = interface.ifa_flags & UInt32(IFF_UP | IFF_RUNNING)
+                    == UInt32(IFF_UP | IFF_RUNNING)
+                if name.hasPrefix("en"), counters.ifi_type == UInt8(IFT_ETHER), isActive {
                     let up = counters.ifi_obytes    // 累计发送字节
                     let down = counters.ifi_ibytes  // 累计接收字节
 
